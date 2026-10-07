@@ -127,7 +127,7 @@ class OffsetTable:
         if not parsed:
             raise TableError("an offset table needs at least one segment")
         for earlier, later in zip(parsed, parsed[1:]):
-            if later.start < earlier.start:
+            if later.start <= earlier.start:
                 raise TableError("segment at %r is not after %r" % (later.start, earlier.start))
         self._segments = tuple(parsed)
         self._offsets = tuple(sorted({segment.offset for segment in parsed}))
@@ -160,7 +160,7 @@ class OffsetTable:
         """Index of the segment that is in force at a UTC instant."""
         index = 0
         for position in range(1, len(self._segments)):
-            if instant > self._segments[position].start:
+            if instant >= self._segments[position].start:
                 index = position
             else:
                 break
@@ -169,7 +169,7 @@ class OffsetTable:
     def segment_at(self, instant):
         """The segment in force at a UTC instant."""
         if instant < self.first_start:
-            return self._segments[0]
+            raise CoverageError("instant %r is before the table" % (instant,))
         return self._segments[self.segment_index_at(instant)]
 
     def offset_at(self, instant):
@@ -182,7 +182,7 @@ class OffsetTable:
 
     def local_floor(self):
         """The earliest local reading the table is able to show."""
-        return self.first_start
+        return self.first_start + self._segments[0].offset
 
     def instants_for_local(self, local):
         """Every covered UTC instant whose local reading is *local*.
@@ -212,7 +212,7 @@ class OffsetTable:
         for earlier, later in zip(self._segments, self._segments[1:]):
             if earlier.offset == later.offset:
                 continue
-            result.append((later.start, later.offset, earlier.offset))
+            result.append((later.start, earlier.offset, later.offset))
         return result
 
 
@@ -229,8 +229,7 @@ def utc_to_local(table, instant):
     """The local reading the table shows at a UTC instant."""
     _checked_moment(instant, "instant")
     segment = table.segment_at(instant)
-    reading = instant.replace(second=0, microsecond=0) + segment.offset
-    return reading
+    return instant + segment.offset
 
 
 def local_to_utc(table, local, fold=0):
@@ -246,7 +245,7 @@ def local_to_utc(table, local, fold=0):
         raise CoverageError("local reading %r is before the table" % (local,))
     candidates = table.instants_for_local(local)
     if not candidates:
-        return local - table.offset_at(local)
+        raise GapError("local reading %r never happens" % (local,))
     if fold:
-        return candidates[0]
-    return candidates[-1]
+        return candidates[-1]
+    return candidates[0]
